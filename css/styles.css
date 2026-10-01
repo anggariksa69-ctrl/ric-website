@@ -521,6 +521,27 @@ textarea:focus {
   letter-spacing: 5px;
 }
 
+.star-rating {
+  display: flex;
+  justify-content: center;
+  gap: 12px;
+  font-size: 48px;
+  color: #cbd5e1;
+  cursor: pointer;
+  margin: 24px 0;
+  user-select: none;
+}
+
+.star-rating span {
+  transition: transform 0.2s, color 0.2s;
+}
+
+.star-rating span:hover,
+.star-rating span.active {
+  color: #f5b800;
+  transform: scale(1.15);
+}
+
 .hamburger {
   display: none;
   flex-direction: column;
