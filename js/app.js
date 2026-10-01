@@ -60,20 +60,63 @@ async function activate(id) {
 }
 
 async function doActivate(id) {
-  const review = document.getElementById("review").value.trim(), phone = document.getElementById("phone").value.trim(), pin = document.getElementById("pin").value, pin2 = document.getElementById("pin2").value, msg = document.getElementById("actMsg");
-  if (!review || pin.length < 4 || pin !== pin2) { msg.innerHTML = '<div class="error">Pastikan URL review terisi, PIN minimal 4 digit dan konfirmasi cocok.</div>'; return; }
-  try { new URL(review) } catch (e) { msg.innerHTML = '<div class="error">Google Review URL tidak valid.</div>'; return; }
-  msg.innerHTML = '<p class="muted" style="padding:10px 0;font-size:13px">⏳ Mengaktifkan kartu...</p>';
-  await patchCard(id, {
-    status: "active",
-    google_review_url: review,
-    phone: phone,
-    pin: pin,
-    activated_at: new Date().toISOString()
-  });
-  msg.innerHTML = '<div class="success">Kartu berhasil diaktifkan. Mengarahkan ke dashboard...</div>';
-  sessionStorage.setItem("ric_auth_" + id, "1");
-  setTimeout(() => { history.pushState(null, '', '/dashboard/' + encodeURIComponent(id)); route(); }, 700);
+  const review = document.getElementById("review").value.trim();
+  const phone = document.getElementById("phone").value.trim();
+  const pin = document.getElementById("pin").value;
+  const pin2 = document.getElementById("pin2").value;
+  const msg = document.getElementById("actMsg");
+
+  // Validasi input
+  if (!review || pin.length < 4 || pin !== pin2) {
+    msg.innerHTML = '<div class="error">Pastikan URL review terisi, PIN minimal 4 digit dan konfirmasi cocok.</div>';
+    return;
+  }
+
+  // Validasi URL
+  try {
+    new URL(review);
+  } catch (e) {
+    msg.innerHTML = '<div class="error">Google Review URL tidak valid.</div>';
+    return;
+  }
+
+  // Tampilkan pesan loading
+  msg.innerHTML = '<p class="muted" style="padding:10px 0;font-size:13px">⏳ Menyimpan data dan mengaktifkan kartu...</p>';
+
+  try {
+    // Simpan semua data ke Supabase
+    await patchCard(id, {
+      status: "active",
+      google_review_url: review,
+      phone: phone || null,
+      pin: pin,
+      activated_at: new Date().toISOString(),
+      events: {}
+    });
+
+    // Verifikasi data tersimpan
+    const savedCard = await getCard(id);
+    if (!savedCard || savedCard.status !== "active") {
+      msg.innerHTML = '<div class="error">Gagal menyimpan data. Silakan coba lagi.</div>';
+      return;
+    }
+
+    // Tampilkan pesan sukses
+    msg.innerHTML = '<div class="success">✓ Kartu berhasil diaktifkan dan data tersimpan. Mengarahkan ke dashboard...</div>';
+
+    // Set session authentication
+    sessionStorage.setItem("ric_auth_" + id, "1");
+
+    // Redirect ke dashboard setelah 1.5 detik
+    setTimeout(() => {
+      history.pushState(null, '', '/dashboard/' + encodeURIComponent(id));
+      route();
+    }, 1500);
+
+  } catch (error) {
+    console.error('Activation error:', error);
+    msg.innerHTML = '<div class="error">Error: Gagal menyimpan data. Pastikan koneksi internet stabil dan coba lagi.</div>';
+  }
 }
 
 async function dashboard(id) {
@@ -81,39 +124,92 @@ async function dashboard(id) {
   if (!card) { setApp(layout(`<main class="page"><div class="container center"><div class="error">Kartu tidak ditemukan.</div></div></main>`)); return; }
   if (sessionStorage.getItem("ric_auth_" + id) !== "1") { setApp(layout(`<main class="page"><div class="container center"><div class="panel"><h2>Akses dilindungi PIN</h2><p class="muted">Masukkan PIN untuk mengakses dashboard.</p><input id="dashPin" type="password" inputmode="numeric" placeholder="PIN"><button class="btn btn-primary" style="width:100%" onclick="unlockDashboard('${esc(id)}')">Buka</button><div id="dashMsg"></div></div></div></main>`)); return; }
   const url = location.origin + "/c/" + encodeURIComponent(id);
-  setApp(layout(`<main class="page"><div class="container"><div><h1 class="page-title">Dashboard Kartu ${esc(id)}</h1><div class="panel"><h3>Informasi Kartu</h3><div class="info-grid"><div><label>Card ID</label><p>${esc(id)}</p></div><div><label>Status</label><p><span class="badge ${card.status === 'active' ? 'badge-success' : 'badge-warning'}">${card.status === 'active' ? '✓ Aktif' : '⚠ Tidak Aktif'}</span></p></div><div><label>URL Akses Kartu</label><p><input type="text" value="${esc(url)}" readonly style="width:100%;padding:8px;border:1px solid var(--border);border-radius:4px;font-size:12px"></p><small style="color:var(--muted)">Bagikan URL ini atau scan NFC kartu untuk direct ke Google Review</small></div></div></div><div class="panel"><h3>Google Review & Kontak</h3><div class="field"><label>🔍 Cari Toko atau Tempel Link Google Maps <span style="font-weight:400;color:var(--muted)">(Untuk mengubah link review)</span></label><div class="search-row"><input id="dPlaceSearch" placeholder="Contoh: Jagongan Bandung ATAU https://maps.app.goo.gl/..."><button class="btn btn-secondary" onclick="searchPlace('dPlaceSearch','dPlaceResults','dReview')">Cari / Konversi</button></div><div id="dPlaceResults" class="place-results"></div></div><div class="field"><label>URL Google Review</label><input id="dReview" value="${esc(card.google_review_url || '')}" placeholder="https://..." oninput="handleReviewPaste(this, 'businessMsg')"></div><div class="field"><label>Nomor WhatsApp</label><input id="dPhone" type="tel" value="${esc(card.phone || '')}" placeholder="+62..."></div><button class="btn btn-secondary" onclick="saveBusiness('${esc(id)}')">Simpan</button><div id="businessMsg"></div></div><div class="panel"><h3>Keamanan</h3><div class="field"><label>PIN Lama</label><input id="oldPin" type="password" inputmode="numeric" placeholder="Masukkan PIN sekarang"></div><div class="field"><label>PIN Baru</label><input id="newPin" type="password" inputmode="numeric" placeholder="PIN minimal 4 digit"></div><div class="field"><label>Konfirmasi PIN Baru</label><input id="newPin2" type="password" inputmode="numeric" placeholder="Ulangi PIN baru"></div><button class="btn btn-secondary" onclick="changePin('${esc(id)}')">Ubah PIN</button><div id="secMsg"></div></div><div class="panel danger"><h3 style="color:var(--danger)">Reset Kartu</h3><p style="font-size:13px;margin-bottom:12px">Ini akan mengembalikan kartu ke status tidak aktif. Gunakan jika Anda ingin mengaktifkan ulang dengan konfigurasi berbeda.</p><button class="btn btn-outline" style="border-color:var(--danger);color:var(--danger)" onclick="resetCard('${esc(id)}')">Reset Kartu</button></div></div></div></main>`));
+  setApp(layout(`<main class="page"><div class="container"><div><h1 class="page-title">Dashboard Kartu ${esc(id)}</h1><div class="panel"><h3>Informasi Kartu</h3><div class="info-grid"><div><label>Card ID</label><p>${esc(id)}</p></div><div><label>Status</label><p><span class="badge ${card.status === 'active' ? 'badge-success' : 'badge-warning'}">${card.status === 'active' ? '✓ Aktif' : '⚠ Tidak Aktif'}</span></p></div><div><label>URL Akses Kartu</label><p><input type="text" value="${esc(url)}" readonly style="width:100%;padding:8px;border:1px solid var(--border);border-radius:4px;font-size:12px"></p><small style="color:var(--muted)">Bagikan URL ini atau scan NFC kartu untuk direct ke Google Review</small></div></div></div><div class="panel"><h3>Google Review & Kontak</h3><div class="field"><label>🔍 Cari Toko atau Tempel Link Google Maps <span style="font-weight:400;color:var(--muted)">(Untuk mengubah link review)</span></label><div class="search-row"><input id="dPlaceSearch" placeholder="Contoh: Jagongan Bandung ATAU https://maps.app.goo.gl/..."><button class="btn btn-secondary" onclick="searchPlace('dPlaceSearch','dPlaceResults','dReview')">Cari / Konversi</button></div><div id="dPlaceResults" class="place-results"></div></div><div class="field"><label>URL Google Review</label><input id="dReview" value="${esc(card.googleReviewUrl || '')}" placeholder="https://..." oninput="handleReviewPaste(this, 'businessMsg')"></div><div class="field"><label>Nomor WhatsApp</label><input id="dPhone" type="tel" value="${esc(card.phone || '')}" placeholder="+62..."></div><button class="btn btn-secondary" onclick="saveBusiness('${esc(id)}')">Simpan</button><div id="businessMsg"></div></div><div class="panel"><h3>Keamanan</h3><div class="field"><label>PIN Lama</label><input id="oldPin" type="password" inputmode="numeric" placeholder="Masukkan PIN sekarang"></div><div class="field"><label>PIN Baru</label><input id="newPin" type="password" inputmode="numeric" placeholder="PIN minimal 4 digit"></div><div class="field"><label>Konfirmasi PIN Baru</label><input id="newPin2" type="password" inputmode="numeric" placeholder="Ulangi PIN baru"></div><button class="btn btn-secondary" onclick="changePin('${esc(id)}')">Ubah PIN</button><div id="secMsg"></div></div><div class="panel danger"><h3 style="color:var(--danger)">Reset Kartu</h3><p style="font-size:13px;margin-bottom:12px">Ini akan mengembalikan kartu ke status tidak aktif. Gunakan jika Anda ingin mengaktifkan ulang dengan konfigurasi berbeda.</p><button class="btn btn-outline" style="border-color:var(--danger);color:var(--danger)" onclick="resetCard('${esc(id)}')">Reset Kartu</button></div></div></div></main>`));
 }
 
 async function saveBusiness(id) {
-  const review = document.getElementById("dReview").value.trim(), phone = document.getElementById("dPhone").value.trim(), msg = document.getElementById("businessMsg");
-  if (!review) { msg.innerHTML = '<div class="error">URL Google Review tidak boleh kosong.</div>'; return; }
-  try { new URL(review) } catch (e) { msg.innerHTML = '<div class="error">URL Google Review tidak valid.</div>'; return; }
-  await patchCard(id, { google_review_url: review, phone: phone });
-  msg.innerHTML = '<div class="success">Informasi tersimpan.</div>';
+  const review = document.getElementById("dReview").value.trim();
+  const phone = document.getElementById("dPhone").value.trim();
+  const msg = document.getElementById("businessMsg");
+
+  if (!review) {
+    msg.innerHTML = '<div class="error">URL Google Review tidak boleh kosong.</div>';
+    return;
+  }
+
+  try {
+    new URL(review);
+  } catch (e) {
+    msg.innerHTML = '<div class="error">URL Google Review tidak valid.</div>';
+    return;
+  }
+
+  msg.innerHTML = '<p class="muted" style="padding:10px 0;font-size:13px">⏳ Menyimpan data...</p>';
+
+  try {
+    await patchCard(id, {
+      google_review_url: review,
+      phone: phone || null
+    });
+
+    // Verifikasi data tersimpan
+    const updatedCard = await getCard(id);
+    if (!updatedCard || updatedCard.googleReviewUrl !== review) {
+      msg.innerHTML = '<div class="error">Gagal menyimpan data. Silakan coba lagi.</div>';
+      return;
+    }
+
+    msg.innerHTML = '<div class="success">✓ Informasi berhasil tersimpan.</div>';
+  } catch (error) {
+    console.error('Save error:', error);
+    msg.innerHTML = '<div class="error">Error: Gagal menyimpan data. Coba lagi.</div>';
+  }
 }
 
 async function changePin(id) {
-  const old = document.getElementById("oldPin").value, n = document.getElementById("newPin").value, n2 = document.getElementById("newPin2").value, m = document.getElementById("secMsg");
+  const old = document.getElementById("oldPin").value;
+  const n = document.getElementById("newPin").value;
+  const n2 = document.getElementById("newPin2").value;
+  const m = document.getElementById("secMsg");
+
   const card = await getCard(id);
   if (!card || old !== card.pin || n.length < 4 || n !== n2) {
     m.innerHTML = '<div class="error">PIN lama salah atau PIN baru tidak valid (min. 4 digit & konfirmasi cocok).</div>';
     return;
   }
-  await patchCard(id, { pin: n });
-  m.innerHTML = '<div class="success">PIN berhasil diubah.</div>';
+
+  m.innerHTML = '<p class="muted" style="padding:10px 0;font-size:13px">⏳ Mengubah PIN...</p>';
+
+  try {
+    await patchCard(id, { pin: n });
+    m.innerHTML = '<div class="success">✓ PIN berhasil diubah.</div>';
+    document.getElementById("oldPin").value = '';
+    document.getElementById("newPin").value = '';
+    document.getElementById("newPin2").value = '';
+  } catch (error) {
+    console.error('PIN change error:', error);
+    m.innerHTML = '<div class="error">Error: Gagal mengubah PIN. Coba lagi.</div>';
+  }
 }
 
 async function resetCard(id) {
-  if (!confirm("Yakin ingin mereset kartu ini?")) return;
-  await patchCard(id, {
-    status: "inactive",
-    google_review_url: "",
-    phone: "",
-    pin: ""
-  });
-  sessionStorage.removeItem("ric_auth_" + id);
-  history.pushState(null, '', '/kelola-kartu');
-  route();
+  if (!confirm("Yakin ingin mereset kartu ini? Data akan dihapus dan kartu kembali ke status tidak aktif.")) return;
+
+  try {
+    await patchCard(id, {
+      status: "inactive",
+      google_review_url: "",
+      phone: null,
+      pin: ""
+    });
+
+    sessionStorage.removeItem("ric_auth_" + id);
+    history.pushState(null, '', '/kelola-kartu');
+    route();
+  } catch (error) {
+    console.error('Reset error:', error);
+    alert('Gagal mereset kartu. Silakan coba lagi.');
+  }
 }
 
 async function cardPage(id) {
@@ -121,7 +217,7 @@ async function cardPage(id) {
   if (!card) { setApp(layout(`<main class="page"><div class="container review-box"><h1>Kartu tidak ditemukan</h1><p class="muted">Periksa kembali NFC kartu RIC Anda.</p><a class="btn btn-primary" href="/kelola-kartu">Kelola Kartu</a></div></main>`)); return; }
   if (card.status === "inactive") { await activate(id); return; }
   await patchCard(id, { events: { ...(card.events || {}), review_redirect: (card.events?.review_redirect || 0) + 1 } });
-  if (card.google_review_url) setTimeout(() => { location.href = card.google_review_url }, 250);
+  if (card.googleReviewUrl) setTimeout(() => { location.href = card.googleReviewUrl }, 250);
   setApp(layout(`<main class="page"><div class="container review-box"><div class="stars">★★★★★</div><h1>Menghubungkan Anda ke Google Review...</h1><p class="muted">Mohon tunggu sebentar, kami sedang membuka halaman review untuk Anda.</p></div></main>`));
 }
 
