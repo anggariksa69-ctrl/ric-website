@@ -1,37 +1,5 @@
-// Google Maps & Places API Helper & Automatic Review Link Converter
+// Google Places API (New) & Automatic Review Link Converter
 let _placeResults = [];
-let _gmapsReady = false;
-
-function loadGmaps(cb) {
-  if (window.google && google.maps && google.maps.places) {
-    _gmapsReady = true;
-    cb();
-    return;
-  }
-  if (window._ricGmpInit) {
-    window._ricGmpInit = () => {
-      _gmapsReady = true;
-      if (cb) cb();
-    };
-    return;
-  }
-  window._gmapsCbQ = window._gmapsCbQ || [];
-  window._gmapsCbQ.push(cb);
-  window._ricGmpInit = () => {
-    _gmapsReady = true;
-    const queue = window._gmapsCbQ || [];
-    window._gmapsCbQ = [];
-    queue.forEach(fn => fn && fn());
-  };
-  if (!document.querySelector('script[data-ric-gmaps="true"]')) {
-    const script = document.createElement('script');
-    script.src = `https://maps.googleapis.com/maps/api/js?key=${GMAPS_KEY}&libraries=places&callback=_ricGmpInit`;
-    script.async = true;
-    script.defer = true;
-    script.dataset.ricGmaps = 'true';
-    document.head.appendChild(script);
-  }
-}
 
 function handleReviewPaste(inputEl, msgId) {
   const val = (inputEl.value || '').trim();
@@ -59,24 +27,54 @@ function handleReviewPaste(inputEl, msgId) {
       } catch (e) {}
     }
 
-    loadGmaps(() => {
-      const service = new google.maps.places.PlacesService(document.createElement('div'));
-      service.findPlaceFromQuery({ query: queryStr, fields: ['place_id', 'name'] }, (results, status) => {
-        if (status === google.maps.places.PlacesServiceStatus.OK && results && results[0]) {
-          inputEl.value = 'https://search.google.com/local/writereview?placeid=' + results[0].place_id;
-          if (msg) msg.innerHTML = '<div class="success">✨ Berhasil dikonversi untuk: <b>' + esc(results[0].name) + '</b></div>';
-        } else {
-          service.textSearch({ query: queryStr, fields: ['place_id', 'name'] }, (results2, status2) => {
-            if (status2 === google.maps.places.PlacesServiceStatus.OK && results2 && results2[0]) {
-              inputEl.value = 'https://search.google.com/local/writereview?placeid=' + results2[0].place_id;
-              if (msg) msg.innerHTML = '<div class="success">✨ Berhasil dikonversi untuk: <b>' + esc(results2[0].name) + '</b></div>';
-            } else if (msg) {
-              msg.innerHTML = '<div class="error">Gagal mengonversi link. Pastikan toko terdaftar di Google Maps atau gunakan fitur pencarian di atas.</div>';
-            }
-          });
-        }
-      });
+    searchPlaceViaAPI(queryStr, (result) => {
+      if (result && result.place_id) {
+        inputEl.value = 'https://search.google.com/local/writereview?placeid=' + result.place_id;
+        if (msg) msg.innerHTML = '<div class="success">✨ Berhasil dikonversi untuk: <b>' + esc(result.name || 'Toko') + '</b></div>';
+      } else if (msg) {
+        msg.innerHTML = '<div class="error">Gagal mengonversi link. Pastikan toko terdaftar di Google Maps atau gunakan fitur pencarian di atas.</div>';
+      }
     });
+  }
+}
+
+async function searchPlaceViaAPI(query, callback) {
+  try {
+    // Google Places API (New) - searchText endpoint
+    const response = await fetch('https://places.googleapis.com/v1/places:searchText', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Goog-Api-Key': GMAPS_KEY,
+        'X-Goog-FieldMask': 'places.id,places.displayName,places.formattedAddress'
+      },
+      body: JSON.stringify({
+        textQuery: query,
+        maxResultCount: 1,
+        languageCode: 'id'
+      })
+    });
+
+    if (!response.ok) {
+      console.error('Places API error:', response.status);
+      callback(null);
+      return;
+    }
+
+    const data = await response.json();
+    if (data.places && data.places.length > 0) {
+      const place = data.places[0];
+      callback({
+        place_id: place.id,
+        name: place.displayName?.text || 'Toko',
+        formatted_address: place.formattedAddress || ''
+      });
+    } else {
+      callback(null);
+    }
+  } catch (error) {
+    console.error('Search error:', error);
+    callback(null);
   }
 }
 
@@ -107,47 +105,62 @@ function searchPlace(inId, resId, targetId) {
     } catch (e) {}
   }
 
-  loadGmaps(() => {
-    const service = new google.maps.places.PlacesService(document.createElement('div'));
-    const reqObj = { query: queryToSearch, fields: ['place_id', 'name', 'formatted_address'] };
-
-    service.findPlaceFromQuery(reqObj, (results, status) => {
-      if (status === google.maps.places.PlacesServiceStatus.OK && results && results.length) {
-        _placeResults = results.slice(0, 5);
-        selectPlace(0, resId, targetId);
-        if (results.length > 1) {
-          r.innerHTML += _placeResults.map((p, i) => `
-            <div class="place-item" onclick="selectPlace(${i}, '${resId}', '${targetId}')">
-              <b>${esc(p.name || 'Nama toko')}</b>
-              <small>${esc(p.formatted_address || 'Alamat tidak tersedia')}</small>
-            </div>
-          `).join('');
-        }
-        return;
+  searchPlacesListViaAPI(queryToSearch, (results) => {
+    if (results && results.length > 0) {
+      _placeResults = results.slice(0, 5);
+      selectPlace(0, resId, targetId);
+      if (results.length > 1) {
+        r.innerHTML += _placeResults.map((p, i) => `
+          <div class="place-item" onclick="selectPlace(${i}, '${resId}', '${targetId}')">
+            <b>${esc(p.name || 'Nama toko')}</b>
+            <small>${esc(p.formatted_address || 'Alamat tidak tersedia')}</small>
+          </div>
+        `).join('');
       }
-
-      service.textSearch(reqObj, (results2, status2) => {
-        if (status2 === google.maps.places.PlacesServiceStatus.REQUEST_DENIED) {
-          r.innerHTML = '<div class="error">Google Places API tidak bisa dipanggil. Pastikan API key aktif, Maps JavaScript API + Places API sudah di-enable di Google Cloud Console.</div>';
-          return;
-        }
-        if (status2 !== google.maps.places.PlacesServiceStatus.OK || !results2 || !results2.length) {
-          r.innerHTML = '<div class="error">Toko tidak ditemukan. Coba ketik nama toko + kota/jalan (misal: "774 HUB Gayam Yogyakarta").</div>';
-          return;
-        }
-        _placeResults = results2.slice(0, 5);
-        selectPlace(0, resId, targetId);
-        if (_placeResults.length > 1) {
-          r.innerHTML += _placeResults.map((p, i) => `
-            <div class="place-item" onclick="selectPlace(${i}, '${resId}', '${targetId}')">
-              <b>${esc(p.name || 'Nama toko')}</b>
-              <small>${esc(p.formatted_address || 'Alamat tidak tersedia')}</small>
-            </div>
-          `).join('');
-        }
-      });
-    });
+    } else {
+      r.innerHTML = '<div class="error">Toko tidak ditemukan. Coba ketik nama toko + kota/jalan (misal: "774 HUB Gayam Yogyakarta").</div>';
+    }
   });
+}
+
+async function searchPlacesListViaAPI(query, callback) {
+  try {
+    // Google Places API (New) - searchText endpoint
+    const response = await fetch('https://places.googleapis.com/v1/places:searchText', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Goog-Api-Key': GMAPS_KEY,
+        'X-Goog-FieldMask': 'places.id,places.displayName,places.formattedAddress'
+      },
+      body: JSON.stringify({
+        textQuery: query,
+        maxResultCount: 5,
+        languageCode: 'id'
+      })
+    });
+
+    if (!response.ok) {
+      console.error('Places API error:', response.status, response.statusText);
+      callback([]);
+      return;
+    }
+
+    const data = await response.json();
+    if (data.places && data.places.length > 0) {
+      const results = data.places.map(place => ({
+        place_id: place.id,
+        name: place.displayName?.text || 'Toko',
+        formatted_address: place.formattedAddress || ''
+      }));
+      callback(results);
+    } else {
+      callback([]);
+    }
+  } catch (error) {
+    console.error('Search error:', error);
+    callback([]);
+  }
 }
 
 function selectPlace(i, resId, targetId) {
