@@ -15,10 +15,6 @@ Website demo untuk brand RIC.
 - Halaman bantuan
 - Customer Service: anggariksa69@gmail.com
 
-## Demo Card
-- RIC-000001 — active — Demo Cafe — PIN 1234
-- RIC-000002 — inactive
-- RIC-000003 — active — Demo Restaurant — PIN 5678
 
 ## Cara menjalankan
 Website ini adalah static SPA dan dapat dibuka langsung dengan web server sederhana.
