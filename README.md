@@ -26,10 +26,7 @@ Lalu buka:
 http://localhost:8080
 
 ## Deploy Vercel
-Upload folder ini ke Vercel. File vercel.json melakukan rewrite route seperti:
- /c/RIC-000001
- /aktivasi/RIC-000002
- /dashboard/RIC-000001
+
 
 ke index.html.
 
