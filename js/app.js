@@ -40,8 +40,13 @@ function manage() {
   return layout(`<main class="page"><div class="container"><div class="center"><h1 class="page-title">Kelola Kartu RIC</h1><p class="page-sub">Masukkan Card ID dari kartu Anda untuk mengakses aktivasi dan dashboard.</p><div class="field"><label>Card ID</label><input id="cardInput" placeholder="Contoh: RIC-00001" autocomplete="off"></div><button class="btn btn-primary" style="width:100%" onclick="openCard()">Lanjutkan</button><div class="note">Tip: Anda juga dapat membuka URL kartu langsung setelah QR/NFC dibaca, misalnya <b>/c/RIC-00001</b>.</div><div id="manageMsg"></div></div></div></main>`);
 }
 
+function normalizeCardId(value) {
+  const raw = String(value || '').trim().toUpperCase().replace(/\s+/g, '');
+  return raw.replace(/^RIC(?!-)/, 'RIC-');
+}
+
 async function openCard() {
-  const id = document.getElementById("cardInput").value.trim().toUpperCase(), msg = document.getElementById("manageMsg");
+  const id = normalizeCardId(document.getElementById("cardInput").value), msg = document.getElementById("manageMsg");
   if (!id) { msg.innerHTML = '<div class="error">Masukkan Card ID terlebih dahulu.</div>'; return; }
   msg.innerHTML = '<p class="muted" style="padding:10px 0;font-size:13px">⏳ Memeriksa kartu...</p>';
   const card = await getCard(id);
